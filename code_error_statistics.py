@@ -48,6 +48,7 @@ def get_argument():
             exit(1)
     else:
         start_date = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(weeks=2)).strftime("%Y-%m-%d")
+    print(f'#### START DATE: {start_date}, END DATE: {end_date}')
     return start_date, end_date
 
 def get_info_from_api(url, params=None):
