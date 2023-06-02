@@ -1,4 +1,3 @@
-
 import argparse, requests, json, csv
 from requests.auth import HTTPBasicAuth
 from tabulate import tabulate
@@ -22,24 +21,34 @@ CI 失败有可能是环境问题引起的，通常 regate 之后就能通过。
 +------------------------------------+-----------+--------------+----------------+
 """
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--date', help='Specify the date in the format "YYYY-MM-DD"')
-parser.add_argument('--week', type=int, default=2, help='Specify the number of weeks')
-args = parser.parse_args()
-if args.date:
-    try:
-        END_DATE = datetime.strptime(args.date, '%Y-%m-%d').date().strftime("%Y-%m-%d")
-    except ValueError:
-        print('Invalid date format!!! Please use the "YYYY-MM-DD".')
-        exit(1)
-else:
-    END_DATE = datetime.now().date().strftime("%Y-%m-%d")
-START_DATE = (datetime.strptime(END_DATE, "%Y-%m-%d") - timedelta(weeks=args.week)).strftime("%Y-%m-%d")
-
 Gerrit_USERNAME = "gerrit_username"
 Gerrit_PASSWORD = "gerrit_password"
 Gerrit_API      = "https://gerrit.com/gerrit"
-Project         = "MN/5G/COMMON/aic-dep"
+Project         = "robottest"
+RESULT_CSV      = 'problematic_changes.csv'
+
+def get_argument():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--end', help='Specify the end date in the format "YYYY-MM-DD"')
+    parser.add_argument('--start', help='Specify the start date in the format "YYYY-MM-DD"')
+    args = parser.parse_args()
+    if args.end:
+        try:
+            end_date = datetime.strptime(args.end, '%Y-%m-%d').date().strftime("%Y-%m-%d")
+        except ValueError:
+            print('Invalid date format!!! Please use the "YYYY-MM-DD".')
+            exit(1)
+    else:
+        end_date = datetime.now().date().strftime("%Y-%m-%d")
+    if args.start:
+        try:
+            start_date = datetime.strptime(args.start, '%Y-%m-%d').date().strftime("%Y-%m-%d")
+        except ValueError:
+            print('Invalid date format!!! Please use the "YYYY-MM-DD".')
+            exit(1)
+    else:
+        start_date = (datetime.strptime(end_date, "%Y-%m-%d") - timedelta(weeks=2)).strftime("%Y-%m-%d")
+    return start_date, end_date
 
 def get_info_from_api(url, params=None):
     response = requests.get(url, params=params, auth=HTTPBasicAuth(Gerrit_USERNAME, Gerrit_PASSWORD))
@@ -52,12 +61,9 @@ def get_info_from_api(url, params=None):
         print(f'Failed to retrieve info. url: {url}, Status code: {response.status_code}')
         return []
 
-def get_problematic_changes():
-    url              = f'{Gerrit_API}/a/changes/'
-    params           = {'q': f'project:{Project} status:merged after:{START_DATE} before:{END_DATE}'}
-    merged_changes   = get_info_from_api(url, params)
+def get_problematic_changes(total_changes):
     change_info_list = []
-    for change in merged_changes:
+    for change in total_changes:
         messages_url  = f'{Gerrit_API}/a/changes/{change["id"]}/messages'
         owner_url     = f'{Gerrit_API}/a/accounts/{change["owner"]["_account_id"]}/'
         messages      = get_info_from_api(messages_url)
@@ -83,13 +89,24 @@ def get_problematic_changes():
         change_info_list.append(change_info)
     return change_info_list
 
-change_list = get_problematic_changes()
-csv_name    = 'problematic_changes.csv'
-header      = ['change', 'subject', 'owner', 'regate_times', 'review+2_times']
-with open(csv_name, 'w', newline='') as csvfile:
-    writer = csv.DictWriter(csvfile, fieldnames=header)
-    writer.writeheader()
-    writer.writerows(change_list)
-header = ['change', 'owner', 'regate_times', 'review+2_times']
-table  = [[item.get('change'), item.get('owner'), item.get('regate_times'), item.get('review+2_times')] for item in change_list]
-print(tabulate(table, headers=header, tablefmt='grid'))
+def save_result(total_changes, problematic_changes):
+    total_changes_count       = len(total_changes)
+    problematic_changes_count = len(problematic_changes)
+    csvheader                 = ['change', 'subject', 'owner', 'regate_times', 'review+2_times']
+    tableheader               = ['change', 'owner', 'regate_times', 'review+2_times']
+    with open(RESULT_CSV, 'w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=csvheader)
+        writer.writeheader()
+        writer.writerows(problematic_changes)
+    print(f'#### There are {total_changes_count} changes in the specified time period')
+    print(f'#### There are {problematic_changes_count} changes Code-Review+2 more than 1 time')
+    table  = [[item.get('change'), item.get('owner'), item.get('regate_times'), item.get('review+2_times')] for item in problematic_changes]
+    print(tabulate(table, headers=tableheader, tablefmt='grid'))
+
+if __name__ == '__main__':
+    start_date, end_date      = get_argument()
+    url                       = f'{Gerrit_API}/a/changes/'
+    params                    = {'q': f'project:{Project} status:merged after:{start_date} before:{end_date}'}
+    total_changes             = get_info_from_api(url, params)
+    problematic_changes       = get_problematic_changes(total_changes)
+    save_result(total_changes, problematic_changes)
