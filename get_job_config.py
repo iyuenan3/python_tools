@@ -32,10 +32,11 @@ JOB_NAME_LIST = [
     'JOB_B',
     'JOB_C'
 ]
-TESTCASE_PATH = "./robot/testcases"
+TESTCASE_PATH    = "./robot/testcases"
+JENKINS_URL      = 'http://192.168.111.222:1234'
 JENKINS_USERNAME = 'jenkins_username'
 JENKINS_PASSWORD = 'jenkins_password'
-JENKINS_URL = 'http://192.168.111.222:1234'
+RESULT_CSV       = 'all_job_case_mapping.csv'
 
 def get_all_job_config(all_testcase_tags):
     all_job_config = []
@@ -103,7 +104,6 @@ def get_all_testcase_tags():
     return all_testcase_tags
 
 def get_job_case_mapping(all_testcase_tags, all_job_config):
-    csv_name = 'all_job_case_mapping.csv'
     case_names = set([tag['CASE_NAME'] for tag in all_testcase_tags])
     job_names = set([job['JOB_NAME'] for job in all_job_config])
     job_case_mapping = {}
@@ -120,7 +120,7 @@ def get_job_case_mapping(all_testcase_tags, all_job_config):
         for case_name in job['EXCLUDE_CASE']:
             job_case_mapping[job_name][case_name] = ''
 
-    with open(csv_name, 'w', newline='') as csvfile:
+    with open(RESULT_CSV, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow([''] + sorted(job_names))
         for case_name in sorted(case_names):
@@ -129,7 +129,7 @@ def get_job_case_mapping(all_testcase_tags, all_job_config):
                 row.append(job_case_mapping[job_name][case_name])
             writer.writerow(row)
 
-    with open(csv_name, 'r') as csvfile:
+    with open(RESULT_CSV, 'r') as csvfile:
         reader = csv.reader(csvfile)
         data = list(reader)
         table = tabulate(data, tablefmt='pipe')
