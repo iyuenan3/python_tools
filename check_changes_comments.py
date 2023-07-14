@@ -40,7 +40,7 @@ def check_comments_resolved(change_id):
                 reply_id.append(comment["in_reply_to"])
             if comment["unresolved"] == True:
                 comments_id.append(comment["id"])
-        if sorted(comments_id) != sorted(reply_id):
+        if not set(comments_id).issubset(set(reply_id)):
             print(comments_list)
             print('ERROR: comment unresolved!!!')
             unresolved_count += 1
