@@ -8,17 +8,18 @@ from datetime import datetime, timedelta
 Commit +2 之后会触发 Zuul 调用 Jenkins Job 来跑 CI 测试，测试可能通过，也有可能失败。
 CI 失败有可能是环境问题引起的，通常 regate 之后就能通过。也有可能是代码问题，那就需要提交一个 Patch 来修改代码，然后再找其他同事 Review。
 如果需要提交新的 Patch，那有可能是该 Commit 的改动引入的，也有可能是代码冲突、环境配置变化等，这样的 Commit 需要被记录下来进一步分析，以提高代码质量。
+通过检查两次 Commit +2 之间修改的文件是否包含 SCT（项目测试代码）文件，来判断本次 CI 失败是否是因为测试用例没有改动到位。
 这个脚本遍历了指定时间段内所有合入的代码，查询每个 commit 中 review+2 的次数，如果大于1次，就会记录到 csv 文件中，并在 console 上输出。
 输出在 Console 上的示例如下：
-+------------------------------------+-----------+--------------+----------------+
-| change                             | owner     | regate_times | review+2_times |
-+====================================+===========+==============+================+
-| {Gerrit_API}/c/{Project}/+/8925234 | Zhang San |            1 |              3 |
-+------------------------------------+-----------+--------------+----------------+
-| {Gerrit_API}/c/{Project}/+/8887567 | Li Si     |            2 |              4 |
-+------------------------------------+-----------+--------------+----------------+
-| {Gerrit_API}/c/{Project}/+/8845819 | Wang Wu   |            0 |              2 |
-+------------------------------------+-----------+--------------+----------------+
++------------------------------------+-----------+--------------+----------------+--------------+
+| change                             | owner     | regate_times | review+2_times | sct_caused   |
++====================================+===========+==============+================+==============+
+| {Gerrit_API}/c/{Project}/+/8925234 | Zhang San |            1 |              3 | True         |
++------------------------------------+-----------+--------------+----------------+--------------+
+| {Gerrit_API}/c/{Project}/+/8887567 | Li Si     |            2 |              4 | False        |
++------------------------------------+-----------+--------------+----------------+--------------+
+| {Gerrit_API}/c/{Project}/+/8845819 | Wang Wu   |            0 |              2 | True         |
++------------------------------------+-----------+--------------+----------------+--------------+
 """
 
 Gerrit_USERNAME = "gerrit_username"
@@ -71,20 +72,35 @@ def get_problematic_changes(total_changes):
         owner         = get_info_from_api(owner_url)
         regate_times  = 0
         review2_times = 0
+        first_review2_number = 0
+        last_review2_number = 0
+        first_review2 = True
+        sct_caused = False
         for message in messages:
             if "regate" in message["message"]:
                 regate_times += 1
             elif "Code-Review+2" in message["message"]:
                 review2_times += 1
+                last_review2_number = message["_revision_number"]
+                if first_review2:
+                    first_review2_number = message["_revision_number"]
+                    first_review2 = False
         if review2_times == 1:
             print(f'{change["_number"]} performed Code-Review+2 once, regate {regate_times} times, Pass')
             continue
+
+        for number in range(first_review2_number+1, last_review2_number+1):
+            files = get_info_from_api(f'{Gerrit_API}/a/changes/{change["id"]}/revisions/{number}/files')
+            if "sct/" in str(files):
+                sct_caused = True
+
         change_info = {
             "change": f'{Gerrit_API}/c/{Project}/+/{change["_number"]}',
             "subject": change["subject"],
             "owner": owner["name"],
             "regate_times": regate_times,
-            "review+2_times": review2_times
+            "review+2_times": review2_times,
+            "sct_caused": sct_caused
         }
         print(f'{change["_number"]} performed Code-Review+2 {review2_times} times, regate {regate_times} times, Failed')
         change_info_list.append(change_info)
@@ -93,15 +109,15 @@ def get_problematic_changes(total_changes):
 def save_result(total_changes, problematic_changes):
     total_changes_count       = len(total_changes)
     problematic_changes_count = len(problematic_changes)
-    csvheader                 = ['change', 'subject', 'owner', 'regate_times', 'review+2_times']
-    tableheader               = ['change', 'owner', 'regate_times', 'review+2_times']
+    csvheader                 = ['change', 'subject', 'owner', 'regate_times', 'review+2_times', "sct_caused"]
+    tableheader               = ['change', 'owner', 'regate_times', 'review+2_times', 'sct_caused']
     with open(RESULT_CSV, 'w', newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=csvheader)
         writer.writeheader()
         writer.writerows(problematic_changes)
     print(f'#### There are {total_changes_count} changes in the specified time period')
     print(f'#### There are {problematic_changes_count} changes Code-Review+2 more than 1 time')
-    table  = [[item.get('change'), item.get('owner'), item.get('regate_times'), item.get('review+2_times')] for item in problematic_changes]
+    table  = [[item.get('change'), item.get('owner'), item.get('regate_times'), item.get('review+2_times'), item.get('sct_caused')] for item in problematic_changes]
     print(tabulate(table, headers=tableheader, tablefmt='grid'))
 
 if __name__ == '__main__':
